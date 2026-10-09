@@ -44,7 +44,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          # Historical skill snapshots need tags, but only their blobs are read.
+          # Historical skill trees are addressed by gitTreeSha. blob:none keeps
+          # the clone small; cat-file fetches those few blobs from the promisor.
           fetch-depth: 0
           filter: blob:none
           persist-credentials: false
