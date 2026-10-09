@@ -4,10 +4,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import nacl from 'tweetnacl'
 import WebSocket from 'ws'
 import type { IdleRegionalRehomeRequest } from '../../cloud/packages/relay-contract/src/idle-regional-rehome'
+import { ASSIGNMENT_LIMITS } from '../../cloud/packages/relay-contract/src/assignment-invariants'
+import { RELAY_PROTOCOL_LIMITS } from '../../cloud/packages/relay-contract/src/protocol-limits'
 import {
   openInMemoryRelayDatabase,
   readRelayDatabasePoolPressure
 } from '../../cloud/apps/relay/src/database'
+import { IDLE_REHOME_MIN_CONTROL_AGE_MS } from '../../cloud/apps/relay/src/host-session-registry'
 import { createRelayServer } from '../../cloud/apps/relay/src/relay-server'
 import type { RelayConfig } from '../../cloud/apps/relay/src/config'
 import type * as AdminTokenVerifier from '../../cloud/apps/relay/src/admin-token-verifier'
@@ -292,6 +295,24 @@ async function topology() {
     },
     hostId
   )
+  // Idle rehome measures control age on this frozen clock. Jump it without
+  // tripping the silence watchdog or expiring the control activity lease.
+  clock += IDLE_REHOME_MIN_CONTROL_AGE_MS
+  const established = source.sessions.get(identity)
+  if (!established?.controlActivityId) {
+    throw new Error('control session missing after initial connect')
+  }
+  established.lastPongAt = clock
+  established.activityRenewalDueAt = clock + RELAY_PROTOCOL_LIMITS.controlPingIntervalMs * 2
+  await source.assignments.renewControlActivity(
+    { userId: identity.userId, relayHostId: identity.relayHostId },
+    {
+      activityId: established.controlActivityId,
+      cellId: cells[0]!.id,
+      expiresAt: clock + ASSIGNMENT_LIMITS.activityLeaseMs
+    }
+  )
+  await heartbeat()
   const attachPhone = async (cellIndex: number, device: string) => {
     const invite = await source.store.createInvite(identity, device)
     const socket = connect(`${cells[cellIndex]!.url}/v1/connect/${hostId}`)
